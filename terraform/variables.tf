@@ -8,6 +8,11 @@ variable "default_vpc_id" {
   default     = "vpc-05ad61cf37d2a7d5f"
 }
 
+variable "bucket_access_role_arn" {
+  description = "Policy to access S3"
+  default     = "arn:aws:iam::905418258334:policy/esklv-vpnS3FullAccess"
+}
+
 variable "default_bucket" {
   description = "S3 bucket"
   default     = "esklv-vpn"
@@ -16,14 +21,4 @@ variable "default_bucket" {
 variable "my_ips" {
   type    = list(string)
   default = ["45.9.230.8/32"]
-}
-
-variable "scripts_repo_url" {
-  description = "Git repo link for scripts"
-  default     = "https://raw.githubusercontent.com/esklv/vpn/main/scripts/"
-}
-
-variable "scripts_list" {
-  description = "List of scripts"
-  default     = ["server_init.sh", "ca_build.sh", "req_gen.sh", "ca_sign.sh", "ovpn_cfg.sh"]
 }

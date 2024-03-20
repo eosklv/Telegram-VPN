@@ -27,6 +27,10 @@ data "aws_s3_bucket" "default" {
   bucket = var.default_bucket
 }
 
+data "aws_iam_policy" "esklv-vpnS3FullAccess" {
+  arn = var.bucket_access_role_arn
+}
+
 resource "aws_instance" "vpn_server" {
   ami           = var.ami_id
   instance_type = "t4g.nano"
@@ -43,25 +47,16 @@ resource "aws_instance" "vpn_server" {
 
   user_data = <<EOF
 #!/bin/bash
-useradd -r -m -l -G sudo -s /bin/bash ca
-useradd -r -m -l -G sudo -s /bin/bash ovpn
-passwd -d ca
-passwd -d ovpn
-mkdir /home/ubuntu/scripts /home/ca/scripts /home/ovpn/scripts
-curl "${var.scripts_repo_url}${var.scripts_list[0]}" -o /home/ubuntu/scripts/server_init.sh
-curl "${var.scripts_repo_url}${var.scripts_list[1]}" -o /home/ca/scripts/ca_build.sh
-curl "${var.scripts_repo_url}${var.scripts_list[2]}" -o /home/ovpn/scripts/req_gen.sh
-curl "${var.scripts_repo_url}${var.scripts_list[3]}" -o /home/ca/scripts/ca_sign.sh
-curl "${var.scripts_repo_url}${var.scripts_list[4]}" -o /home/ovpn/scripts/ovpn_cfg.sh
+apt update
+apt install unzip -y
+curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "/home/ubuntu/awscliv2.zip"
+unzip /home/ubuntu/awscliv2.zip -d /home/ubuntu/
+/home/ubuntu/aws/install
+mkdir /home/ubuntu/scripts
+aws s3 cp s3://${var.default_bucket}/scripts/bootscript.sh /home/ubuntu/scripts/
 chown -R ubuntu:ubuntu /home/ubuntu/*
-chown -R ca:ca /home/ca/*
-chown -R ovpn:ovpn /home/ovpn/*
-chmod 700 /home/ubuntu/scripts/* /home/ca/scripts/* /home/ovpn/scripts/*
-sudo -u ubuntu /home/ubuntu/scripts/server_init.sh
-sudo -u ca /home/ca/scripts/ca_build.sh
-sudo -u ovpn /home/ovpn/scripts/req_gen.sh
-sudo -u ca /home/ca/scripts/ca_sign.sh
-sudo -u ovpn /home/ovpn/scripts/ovpn_cfg.sh
+chmod 700 /home/ubuntu/scripts/*
+sudo -u ubuntu /home/ubuntu/scripts/bootscript.sh
 EOF
 
   tags = {
@@ -88,12 +83,12 @@ resource "aws_vpc_security_group_ingress_rule" "allow_ssh_ipv4" {
   to_port           = 22
 }
 
-resource "aws_vpc_security_group_ingress_rule" "allow_udp_on_443_ipv4" {
+resource "aws_vpc_security_group_ingress_rule" "allow_tcp_on_443_ipv4" {
   security_group_id = aws_security_group.allow_connecting.id
   for_each          = toset(var.my_ips)
   cidr_ipv4         = each.key
   from_port         = 443
-  ip_protocol       = "udp"
+  ip_protocol       = "tcp"
   to_port           = 443
 }
 
@@ -106,12 +101,10 @@ resource "aws_vpc_security_group_egress_rule" "allow_all_traffic_ipv4" {
 data "aws_iam_policy_document" "assume_role_ec2" {
   statement {
     effect = "Allow"
-
     principals {
       type        = "Service"
       identifiers = ["ec2.amazonaws.com"]
     }
-
     actions = ["sts:AssumeRole"]
   }
 }
@@ -121,27 +114,9 @@ resource "aws_iam_role" "esklv-vpnS3FullAccess" {
   assume_role_policy = data.aws_iam_policy_document.assume_role_ec2.json
 }
 
-data "aws_iam_policy_document" "esklv-vpnS3FullAccess" {
-  statement {
-    actions   = ["s3:ListBucket"]
-    resources = [data.aws_s3_bucket.default.arn]
-    effect    = "Allow"
-  }
-  statement {
-    actions   = ["s3:*"]
-    resources = ["arn:aws:s3:::${data.aws_s3_bucket.default.bucket}/*"]
-    effect    = "Allow"
-  }
-}
-
-resource "aws_iam_policy" "esklv-vpnS3FullAccess" {
-  name   = "esklv-vpnS3FullAccess"
-  policy = data.aws_iam_policy_document.esklv-vpnS3FullAccess.json
-}
-
 resource "aws_iam_role_policy_attachment" "esklv-vpnS3FullAccess" {
   role       = aws_iam_role.esklv-vpnS3FullAccess.name
-  policy_arn = aws_iam_policy.esklv-vpnS3FullAccess.arn
+  policy_arn = data.aws_iam_policy.esklv-vpnS3FullAccess.arn
 }
 
 resource "aws_iam_instance_profile" "esklv-vpnS3FullAccess" {
