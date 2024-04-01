@@ -61,11 +61,11 @@ sudo systemctl -f enable openvpn-server@server.service
 sudo systemctl start openvpn-server@server.service
 
 mkdir -p ~/client-configs/files
-aws s3 cp s3://esklv-vpn/configs/base.conf ~/client-configs/
+aws s3 cp s3://esklv-vpn/configs/client.conf ~/client-configs/
 ip_address=`curl ipinfo.io/ip`
-sed -i "s/my-server-1/${ip_address}/" ~/client-configs/base.conf
+sed -i "s/my-server-1/${ip_address}/" ~/client-configs/client.conf
  
-cat ~/client-configs/base.conf \
+cat ~/client-configs/client.conf \
     <(echo -e '<ca>') \
     ~/client-configs/keys/ca.crt \
     <(echo -e '</ca>\n<cert>') \

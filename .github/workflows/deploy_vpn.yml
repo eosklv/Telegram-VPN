@@ -1,0 +1,32 @@
+name: Deploy infrastructure using Terraform
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        type: choice
+        required: true
+        options: 
+        - apply
+        - destroy
+permissions:
+  id-token: write
+  contents: read
+defaults:
+  run:
+    working-directory: "terraform"
+jobs:
+  deploy:
+    name: Terraform init and apply or destroy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.GH_ROLE }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+      - run: terraform init
+      - run: terraform ${{ inputs.action }} --auto-approve

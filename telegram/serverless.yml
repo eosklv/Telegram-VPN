@@ -1,0 +1,19 @@
+service: tg-bot
+
+provider:
+  name: aws
+  runtime: python3.10
+  stage: dev
+  region: us-east-2
+  environment:
+    TELEGRAM_TOKEN: ${env:TELEGRAM_TOKEN}
+    GH_TOKEN: ${env:GH_TOKEN}
+
+functions:
+  post:
+    handler: handler.handler
+    events:
+      - http:
+          path: tgbot
+          method: post
+          cors: true

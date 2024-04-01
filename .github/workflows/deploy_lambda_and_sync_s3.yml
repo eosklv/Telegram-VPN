@@ -1,0 +1,45 @@
+name: Deploy application to Lambda and sync files with S3
+on: 
+  push:
+    paths:
+      - '.github/workflows/deploy_lambda_and_sync_s3.yml'
+      - 'configs/**'
+      - 'scripts/**'
+      - 'telegram/**'
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.x]
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.GH_ROLE }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Sync scripts and configs with S3
+        run: |
+          aws s3 sync ./scripts s3://${{ vars.S3_BUCKET }}/scripts/
+          aws s3 sync ./configs s3://${{ vars.S3_BUCKET }}/configs/
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Pack dependencies for Lambda
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r ./telegram/requirements.txt -t ./telegram/vendored
+      - name: Enter dir and deploy
+        uses: serverless/github-action@v3.2
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        with:
+          args: -c "cd ./telegram && serverless deploy"
+          entrypoint: /bin/sh
