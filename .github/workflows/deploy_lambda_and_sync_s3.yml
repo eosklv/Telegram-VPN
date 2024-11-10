@@ -6,6 +6,7 @@ on:
       - 'configs/**'
       - 'scripts/**'
       - 'telegram/**'
+  workflow_dispatch:
 permissions:
   id-token: write
   contents: read

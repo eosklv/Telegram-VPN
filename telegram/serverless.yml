@@ -4,7 +4,7 @@ provider:
   name: aws
   runtime: python3.10
   stage: dev
-  region: us-east-2
+  region: eu-north-1
   environment:
     TELEGRAM_TOKEN: ${env:TELEGRAM_TOKEN}
     GH_TOKEN: ${env:GH_TOKEN}

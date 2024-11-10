@@ -41,18 +41,18 @@ cp ~/easy-rsa/ta.key ~/easy-rsa/pki/issued/client.crt ~/easy-rsa/pki/private/cli
 
 sudo chown ubuntu.ubuntu ~/client-configs/keys/*
 
-sudo aws s3 cp s3://esklv-vpn/configs/server.conf /etc/openvpn/server/
+sudo aws s3 cp s3://esklv-vpn-eu-north-1/configs/server.conf /etc/openvpn/server/
 
 sudo sed -i "s/#\(net.ipv4.ip_forward\)/\1/" /etc/sysctl.conf
 sudo sysctl -p
 
-sudo aws s3 cp s3://esklv-vpn/configs/before.rules /etc/ufw/
+sudo aws s3 cp s3://esklv-vpn-eu-north-1/configs/before.rules /etc/ufw/
 iface=$(ip route list default | awk '{ print $5 }')
 sudo sed -i "s/ eth0 / ${iface} /" /etc/ufw/before.rules
 
 sudo sed -i 's/\(DEFAULT_FORWARD_POLICY *= *\).*/\1"ACCEPT"/' /etc/default/ufw
 
-sudo ufw allow 443/tcp
+sudo ufw allow 443/udp
 sudo ufw allow OpenSSH
 sudo ufw disable
 sudo ufw enable
@@ -61,7 +61,7 @@ sudo systemctl -f enable openvpn-server@server.service
 sudo systemctl start openvpn-server@server.service
 
 mkdir -p ~/client-configs/files
-aws s3 cp s3://esklv-vpn/configs/client.conf ~/client-configs/
+aws s3 cp s3://esklv-vpn-eu-north-1/configs/client.conf ~/client-configs/
 ip_address=`curl ipinfo.io/ip`
 sed -i "s/my-server-1/${ip_address}/" ~/client-configs/client.conf
  
@@ -77,4 +77,4 @@ cat ~/client-configs/client.conf \
     <(echo -e '</tls-crypt>') \
     > ~/client-configs/files/client.ovpn
 
-aws s3 cp ~/client-configs/files/client.ovpn s3://esklv-vpn/profiles/
+aws s3 cp ~/client-configs/files/client.ovpn s3://esklv-vpn-eu-north-1/profiles/
