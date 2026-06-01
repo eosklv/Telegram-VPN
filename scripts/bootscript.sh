@@ -2,7 +2,7 @@
 
 # Configuring OpenVPN Server
 
-sudo apt install openvpn easy-rsa -y
+sudo apt update && sudo apt install openvpn easy-rsa -y
 
 export EASYRSA_BATCH=1
 
@@ -52,7 +52,7 @@ sudo sed -i "s/ eth0 / ${iface} /" /etc/ufw/before.rules
 
 sudo sed -i 's/\(DEFAULT_FORWARD_POLICY *= *\).*/\1"ACCEPT"/' /etc/default/ufw
 
-sudo ufw allow 443/udp
+sudo ufw allow 443/tcp
 sudo ufw allow OpenSSH
 sudo ufw disable
 sudo ufw enable
