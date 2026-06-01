@@ -2,7 +2,7 @@
 
 # Configuring OpenVPN Server
 
-sudo apt install openvpn easy-rsa -y
+sudo apt update && sudo apt install openvpn easy-rsa -y
 
 export EASYRSA_BATCH=1
 
