@@ -57,7 +57,7 @@ jobs:
           curl -sSf "https://api.telegram.org/bot${TELEGRAM_TOKEN}/setWebhook" \
             --data-urlencode "url=${webhook_url}" \
             --data-urlencode "secret_token=${webhook_secret}" \
-            --data-urlencode 'allowed_updates=["message"]' \
+            --data-urlencode 'allowed_updates=["message","callback_query"]' \
             --data-urlencode "drop_pending_updates=true" > /dev/null
       - name: Register bot commands
         env:
@@ -67,7 +67,8 @@ jobs:
             {"command": "deploy_openvpn", "description": "OpenVPN (443/tcp) server in AWS"},
             {"command": "deploy_yandex", "description": "WireGuard server in Yandex Cloud"},
             {"command": "deploy_yandex_openvpn", "description": "OpenVPN (443/tcp) server in Yandex Cloud"},
-            {"command": "profiles", "description": "Job status, profile links and QR codes"},
+            {"command": "status", "description": "Job status, profile links and QR codes"},
+            {"command": "why", "description": "Why the last job failed"},
             {"command": "destroy", "description": "Destroy the AWS server"},
             {"command": "destroy_yandex", "description": "Destroy the Yandex Cloud server"}]
         run: |
