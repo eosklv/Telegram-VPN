@@ -430,6 +430,16 @@ data "aws_iam_policy_document" "bot_boundary" {
     actions   = ["s3:GetObject"]
     resources = ["${local.bucket_arn}/${local.profile_prefix}*"]
   }
+
+  # Only the cheap Amazon Nova models, directly or through cross-region inference profiles
+  statement {
+    sid     = "InvokeNova"
+    actions = ["bedrock:InvokeModel"]
+    resources = [
+      "arn:aws:bedrock:${var.region}:${local.account_id}:inference-profile/*.amazon.nova-*",
+      "arn:aws:bedrock:*::foundation-model/amazon.nova-*",
+    ]
+  }
 }
 
 resource "aws_iam_policy" "bot_boundary" {

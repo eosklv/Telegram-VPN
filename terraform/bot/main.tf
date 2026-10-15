@@ -94,6 +94,30 @@ resource "aws_iam_role_policy" "bot_profiles" {
   policy = data.aws_iam_policy_document.bot_profiles.json
 }
 
+locals {
+  # "eu.amazon.nova-micro-v1:0" -> "amazon.nova-micro-v1:0"
+  bedrock_foundation_model = replace(var.bedrock_model_id, "/^(eu|us|apac|global)\\./", "")
+}
+
+# A cross-region inference profile needs access to the profile and to the model in every region it routes to
+data "aws_iam_policy_document" "bot_bedrock" {
+  statement {
+    actions = ["bedrock:InvokeModel"]
+    resources = [
+      "arn:aws:bedrock:${var.region}:${data.aws_caller_identity.current.account_id}:inference-profile/${var.bedrock_model_id}",
+      "arn:aws:bedrock:*::foundation-model/${local.bedrock_foundation_model}",
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "bot_bedrock" {
+  count = var.bedrock_model_id == "" ? 0 : 1
+
+  name   = "invoke-bedrock"
+  role   = aws_iam_role.bot.id
+  policy = data.aws_iam_policy_document.bot_bedrock.json
+}
+
 resource "aws_cloudwatch_log_group" "bot" {
   name              = "/aws/lambda/${var.function_name}"
   retention_in_days = 14
@@ -107,8 +131,9 @@ resource "aws_lambda_function" "bot" {
   handler          = "handler.handler"
   filename         = data.archive_file.bot.output_path
   source_code_hash = data.archive_file.bot.output_base64sha256
-  timeout          = 15
   memory_size      = 128
+  # Below the 30 s limit of API Gateway, otherwise Telegram gets a 5xx and retries the update
+  timeout = 25
 
   environment {
     variables = {
@@ -119,6 +144,7 @@ resource "aws_lambda_function" "bot" {
       GH_REPO                 = var.github_repo
       S3_BUCKET               = var.profile_bucket
       S3_PROFILE_PREFIX       = var.profile_prefix
+      BEDROCK_MODEL_ID        = var.bedrock_model_id
     }
   }
 

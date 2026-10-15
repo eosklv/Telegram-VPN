@@ -48,3 +48,9 @@ variable "profile_prefix" {
   type        = string
   default     = "profiles/"
 }
+
+variable "bedrock_model_id" {
+  description = "Bedrock model or inference profile that understands free-text messages, empty for keywords only"
+  type        = string
+  default     = "eu.amazon.nova-micro-v1:0"
+}
