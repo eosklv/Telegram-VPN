@@ -137,7 +137,7 @@ class RoutingTest(HandlerTestCase):
         self.message("tear it down")
 
         self.assertEqual(self.keyboard(), ["run:destroy:aws:wireguard", "cancel"])
-        self.assertEqual(self.button_labels(), ["Yes, destroy", "Cancel"])
+        self.assertEqual(self.button_labels(), ["✅ Yes, destroy", "❌ Cancel"])
         self.assertEqual(self.http.dispatches(), [])
 
     def test_invalid_tool_arguments_fall_back_to_defaults(self):
@@ -181,7 +181,7 @@ class RoutingTest(HandlerTestCase):
         self.converse.return_value = converse_response(tool_block("deploy"))
         self.message("I need a VPN")
 
-        self.assertEqual(self.button_labels(), ["Yes, deploy", "Cancel"])
+        self.assertEqual(self.button_labels(), ["✅ Yes, deploy", "❌ Cancel"])
 
 
 class DirectRoutingTest(HandlerTestCase):
@@ -216,7 +216,7 @@ class DirectRoutingTest(HandlerTestCase):
                 self.http.calls.clear()
                 self.message(text)
                 self.assertEqual(self.keyboard(), [data, "cancel"])
-                self.assertEqual(self.button_labels(), ["Yes, destroy", "Cancel"])
+                self.assertEqual(self.button_labels(), ["✅ Yes, destroy", "❌ Cancel"])
                 self.assertEqual(self.http.dispatches(), [])
         self.converse.assert_not_called()
 
@@ -237,10 +237,34 @@ class DirectRoutingTest(HandlerTestCase):
         self.assertTrue(markup["resize_keyboard"])
         texts = [[button["text"] for button in row] for row in markup["keyboard"]]
         self.assertEqual(texts, [
-            ["deploy", "deploy openvpn"],
-            ["deploy yandex", "deploy yandex openvpn"],
-            ["status", "destroy", "destroy yandex"],
+            ["🚀 Deploy", "🔐 Deploy OpenVPN"],
+            ["🚀 Deploy Yandex", "🔐 Deploy Yandex OpenVPN"],
+            ["📊 Status", "💥 Destroy", "💥 Destroy Yandex"],
         ])
+
+    def test_keyboard_buttons_run_their_commands_without_llm(self):
+        deploys = {
+            "🚀 Deploy": ("aws", "wireguard"),
+            "🔐 Deploy OpenVPN": ("aws", "openvpn"),
+            "🚀 Deploy Yandex": ("yandex", "wireguard"),
+            "🔐 Deploy Yandex OpenVPN": ("yandex", "openvpn"),
+        }
+        for label, (cloud, protocol) in deploys.items():
+            with self.subTest(label=label):
+                self.http.calls.clear()
+                self.message(label)
+                self.assertEqual(self.http.dispatches(), [{"action": "apply", "cloud": cloud, "protocol": protocol}])
+
+        for label, data in {"💥 Destroy": "run:destroy:aws:wireguard", "💥 Destroy Yandex": "run:destroy:yandex:wireguard"}.items():
+            with self.subTest(label=label):
+                self.http.calls.clear()
+                self.message(label)
+                self.assertEqual(self.keyboard(), [data, "cancel"])
+                self.assertEqual(self.http.dispatches(), [])
+
+        self.message("📊 Status")
+        self.send_profiles.assert_called_once_with(CHAT_ID)
+        self.converse.assert_not_called()
 
 
 class FallbackTest(HandlerTestCase):

@@ -46,18 +46,20 @@ ACTIONS = ("apply", "destroy")
 YANDEX_WORDS = ["yandex", "yc"]
 OPENVPN_WORDS = ["openvpn", "ovpn", "tcp"]
 PROFILE_EXTENSIONS = (".conf", ".ovpn")
+# Button label -> the command it stands for
 KEYBOARD_ROWS = [
-    ["deploy", "deploy openvpn"],
-    ["deploy yandex", "deploy yandex openvpn"],
-    ["status", "destroy", "destroy yandex"],
+    [("🚀 Deploy", "deploy"), ("🔐 Deploy OpenVPN", "deploy openvpn")],
+    [("🚀 Deploy Yandex", "deploy yandex"), ("🔐 Deploy Yandex OpenVPN", "deploy yandex openvpn")],
+    [("📊 Status", "status"), ("💥 Destroy", "destroy"), ("💥 Destroy Yandex", "destroy yandex")],
 ]
 KEYBOARD = {
-    "keyboard": [[{"text": text} for text in row] for row in KEYBOARD_ROWS],
+    "keyboard": [[{"text": label} for label, _ in row] for row in KEYBOARD_ROWS],
     "is_persistent": True,
     "resize_keyboard": True,
 }
+BUTTON_COMMANDS = {label: command for row in KEYBOARD_ROWS for label, command in row}
 # Exact button and menu texts are handled without the LLM
-DIRECT_TEXTS = {text for row in KEYBOARD_ROWS for text in row} | {"start", "hi"}
+DIRECT_TEXTS = set(BUTTON_COMMANDS.values()) | {"start", "hi"}
 LINK_TTL = 300
 CONFIRM_TTL = 600
 LOG_TAIL_CHARS = 12000
@@ -292,10 +294,10 @@ def describe(action, cloud, protocol):
 
 
 def ask_confirmation(chat_id, action, cloud, protocol):
-    label = "Yes, deploy" if action == "apply" else "Yes, destroy"
+    label = "✅ Yes, deploy" if action == "apply" else "✅ Yes, destroy"
     buttons = [
         {"text": label, "callback_data": f"run:{action}:{cloud}:{protocol}"},
-        {"text": "Cancel", "callback_data": "cancel"},
+        {"text": "❌ Cancel", "callback_data": "cancel"},
     ]
     send_message(chat_id, describe(action, cloud, protocol) + "?", reply_markup={"inline_keyboard": [buttons]})
 
@@ -384,6 +386,7 @@ def handle_message(chat_id, first_name, message, direct=False):
 
 
 def handle_text(chat_id, first_name, text):
+    text = BUTTON_COMMANDS.get(text.strip(), text)
     direct = text.startswith("/") or " ".join(words(text)) in DIRECT_TEXTS
     if BEDROCK_MODEL_ID and not direct:
         try:

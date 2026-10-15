@@ -47,18 +47,18 @@ Every reply of the bot carries a persistent keyboard with the main commands, so 
 
 | | | |
 |---|---|---|
-| `deploy` | `deploy openvpn` | |
-| `deploy yandex` | `deploy yandex openvpn` | |
-| `status` | `destroy` | `destroy yandex` |
+| 🚀 Deploy | 🔐 Deploy OpenVPN | |
+| 🚀 Deploy Yandex | 🔐 Deploy Yandex OpenVPN | |
+| 📊 Status | 💥 Destroy | 💥 Destroy Yandex |
 
-A button sends its text as a message, so it works exactly like the typed command.
+A button sends its label as a message, and the bot maps it to the matching command (`deploy yandex openvpn`, `status` and so on), so it works exactly like the typed command.
 
 ### Free text
 
 Anything else can be written in plain words: *"spin up a VPN in Yandex that works over TCP"*, *"send me the QR code"*, *"why did the last deploy fail?"*, *"tear it down"*. Such messages go to [Amazon Nova Micro](https://aws.amazon.com/nova/) in Amazon Bedrock through the Converse API with tool use. The model only picks one of the bot's actions (`deploy`, `destroy`, `status`, `profiles`, `profile`, `qr`, `explain_failure`) and its arguments, or replies to small talk; the actions themselves are the same deterministic functions the commands use, and their arguments are validated before use.
 
 - **Exact commands skip the model.** Keyboard buttons, menu commands (with or without `@BotName`) and `start` / `hi` go straight to the handlers, so they are instant and cost nothing.
-- **Confirmation.** `destroy` always asks for an inline *Yes, destroy* / *Cancel* confirmation, whether it comes from a button, a command or free text. `deploy` from a button or a command starts at once, while `deploy` understood from free text is confirmed with *Yes, deploy* / *Cancel*, so a misunderstood message never launches a job. The confirmation carries the action in its callback data, so no state is stored; it expires after 10 minutes, and the buttons are removed once pressed.
+- **Confirmation.** `destroy` always asks for an inline *✅ Yes, destroy* / *❌ Cancel* confirmation, whether it comes from a button, a command or free text. `deploy` from a button or a command starts at once, while `deploy` understood from free text is confirmed with *✅ Yes, deploy* / *❌ Cancel*, so a misunderstood message never launches a job. The confirmation carries the action in its callback data, so no state is stored; it expires after 10 minutes, and the buttons are removed once pressed.
 - **Fallback.** If Bedrock fails, times out (8 s) or returns nothing usable, the message is handled by the keyword parser, so the bot keeps working without the model. An empty `bedrock_model_id` turns the model off completely.
 - **Why it failed.** `/why` or a question about a failure fetches the log of the failed job of the last `deploy_vpn.yml` run through the GitHub API and asks the model, with no tools available, for a short explanation and the likely fix. The log is downloaded from GitHub's blob storage without the GitHub token. Without the model, the bot sends the end of the log.
 
