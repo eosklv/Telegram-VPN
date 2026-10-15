@@ -1,0 +1,60 @@
+name: Deploy Telegram bot
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/deploy_bot.yml'
+      - 'telegram/**'
+      - 'terraform/bot/**'
+  workflow_dispatch:
+permissions:
+  id-token: write
+  contents: read
+concurrency:
+  group: tg-bot
+  cancel-in-progress: false
+env:
+  TF_DIR: terraform/bot
+  TF_IN_AUTOMATION: "true"
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.GH_ROLE }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.16.6"
+          terraform_wrapper: false
+      - name: Terraform init
+        run: |
+          terraform -chdir="${TF_DIR}" init -input=false \
+            -backend-config="bucket=${{ vars.S3_BUCKET }}" \
+            -backend-config="region=${{ vars.AWS_REGION }}"
+      - name: Terraform apply
+        env:
+          TF_VAR_region: ${{ vars.AWS_REGION }}
+          TF_VAR_profile_bucket: ${{ vars.S3_BUCKET }}
+          TF_VAR_allowed_chat_ids: ${{ vars.TELEGRAM_ALLOWED_CHAT_IDS }}
+          TF_VAR_telegram_token: ${{ secrets.TELEGRAM_TOKEN }}
+          TF_VAR_github_token: ${{ secrets.GH_TOKEN }}
+        run: terraform -chdir="${TF_DIR}" apply -input=false -auto-approve
+      - name: Register Telegram webhook
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+        run: |
+          webhook_url=$(terraform -chdir="${TF_DIR}" output -raw webhook_url)
+          webhook_secret=$(terraform -chdir="${TF_DIR}" output -raw webhook_secret)
+          echo "::add-mask::${webhook_secret}"
+          curl -sSf "https://api.telegram.org/bot${TELEGRAM_TOKEN}/setWebhook" \
+            --data-urlencode "url=${webhook_url}" \
+            --data-urlencode "secret_token=${webhook_secret}" \
+            --data-urlencode 'allowed_updates=["message"]' \
+            --data-urlencode "drop_pending_updates=true" > /dev/null

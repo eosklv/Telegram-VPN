@@ -1,115 +1,182 @@
+import hmac
+import html
 import json
+import logging
 import os
-import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
 import boto3
-import datetime
 
-here = os.path.dirname(os.path.realpath(__file__))
-sys.path.append(os.path.join(here, "./vendored"))
-
-import requests
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 TELEGRAM_URL = f"https://api.telegram.org/bot{os.environ['TELEGRAM_TOKEN']}"
+WEBHOOK_SECRET = os.environ["TELEGRAM_WEBHOOK_SECRET"]
+ALLOWED_CHAT_IDS = {int(i) for i in os.environ["ALLOWED_CHAT_IDS"].split(",") if i.strip()}
 
-GH_AUTH = {"Authorization": f"Bearer {os.environ['GH_TOKEN']}"}
-GH_OWNER = "eosklv"
-GH_REPO = "vpn"
-GH_WORKFLOW = "deploy_vpn.yml"
-GH_URL = f"https://api.github.com/repos/{GH_OWNER}/{GH_REPO}/actions"
+GH_HEADERS = {
+    "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+    "Accept": "application/vnd.github+json",
+}
+GH_WORKFLOW_URL = f"https://api.github.com/repos/{os.environ['GH_REPO']}/actions/workflows/deploy_vpn.yml"
 
-S3_CLIENT = boto3.client("s3", region_name='eu-north-1', endpoint_url='https://s3.eu-north-1.amazonaws.com')
-S3_BUCKET = "esklv-vpn-eu-north-1"
-S3_PROFILE = "profiles/client.ovpn"
+AWS_REGION = os.environ["AWS_REGION"]
+S3_CLIENT = boto3.client("s3", region_name=AWS_REGION, endpoint_url=f"https://s3.{AWS_REGION}.amazonaws.com")
+S3_BUCKET = os.environ["S3_BUCKET"]
+S3_PROFILE_PREFIX = os.environ["S3_PROFILE_PREFIX"]
+
+CLOUDS = {"aws": "AWS Stockholm", "yandex": "Yandex Cloud"}
+YANDEX_WORDS = ["yandex", "yc"]
+OPENVPN_WORDS = ["openvpn", "ovpn", "tcp"]
+PROFILE_EXTENSIONS = (".conf", ".ovpn")
+LINK_TTL = 300
+
+HTTP_TIMEOUT = 10
 
 
-def gh_dispatch(action=""):
-    payload = json.dumps({"ref": "main", "inputs": {"action": action}})
-    r = requests.post(GH_URL + f"/workflows/{GH_WORKFLOW}/dispatches", headers=GH_AUTH, data=payload)
-    return r.status_code
+def http_request(url, data=None, headers=None, method=None):
+    req = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as r:
+            body = r.read()
+            return r.status, json.loads(body) if body else None
+    except urllib.error.HTTPError as e:
+        logger.error("%s %s failed: %s %s", method or "GET", url.split("?")[0], e.code, e.read()[:500])
+        return e.code, None
+
+
+def send_message(chat_id, text, parse_mode=""):
+    payload = {"chat_id": chat_id, "text": text}
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
+    http_request(TELEGRAM_URL + "/sendMessage", data=urllib.parse.urlencode(payload).encode(), method="POST")
+
+
+def send_photo(chat_id, photo_url, caption):
+    payload = {"chat_id": chat_id, "photo": photo_url, "caption": caption}
+    http_request(TELEGRAM_URL + "/sendPhoto", data=urllib.parse.urlencode(payload).encode(), method="POST")
+
+
+def gh_dispatch(action, cloud, protocol):
+    inputs = {"action": action, "cloud": cloud, "protocol": protocol}
+    payload = json.dumps({"ref": "main", "inputs": inputs}).encode()
+    status, _ = http_request(GH_WORKFLOW_URL + "/dispatches", data=payload, headers=GH_HEADERS, method="POST")
+    return status
 
 
 def gh_track(chat_id):
-    t = (datetime.datetime.utcnow() - datetime.timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M")
-    r = requests.get(GH_URL + f"/runs?created=%3E{t}", headers=GH_AUTH)
-    runs = r.json()["workflow_runs"]
-    if len(runs) > 0:
-        send_message(chat_id, f"Job status: {runs[0]['status']}")
-        if runs[0]['conclusion']:
-            send_message(chat_id, f"Job conclusion: {runs[0]['conclusion']}")
+    status, body = http_request(GH_WORKFLOW_URL + "/runs?per_page=1", headers=GH_HEADERS)
+    runs = (body or {}).get("workflow_runs", [])
+    if status != 200:
+        send_message(chat_id, f"Cannot call GitHub, response code: {status}.")
+    elif not runs:
+        send_message(chat_id, "No jobs yet.")
     else:
-        send_message(chat_id, "No active jobs.")
+        run = runs[0]
+        text = f"Last job: {run['display_title']}\nStatus: {run['status']}"
+        if run["conclusion"]:
+            text += f"\nConclusion: {run['conclusion']}"
+        send_message(chat_id, text)
 
 
-def send_message(chat_id, response, parse_mode=""):
-    payload = {"text": response.encode("utf8"), "chat_id": chat_id}
-    if parse_mode:
-        payload["parse_mode"] = parse_mode
-    url = TELEGRAM_URL + "/sendMessage"
-    requests.post(url, data=payload)
+def presign(key, **response):
+    params = {"Bucket": S3_BUCKET, "Key": key, **response}
+    return S3_CLIENT.generate_presigned_url("get_object", Params=params, ExpiresIn=LINK_TTL)
 
 
-def prefix_exists(bucket, prefix):
-    res = S3_CLIENT.list_objects_v2(Bucket=bucket, Prefix=prefix)
-    return "Contents" in res
+def send_profiles(chat_id):
+    res = S3_CLIENT.list_objects_v2(Bucket=S3_BUCKET, Prefix=S3_PROFILE_PREFIX)
+    keys = sorted(obj["Key"] for obj in res.get("Contents", []))
+    sent = False
+    for cloud, title in CLOUDS.items():
+        prefix = f"{S3_PROFILE_PREFIX}{cloud}/"
+        files = [k.removeprefix(prefix) for k in keys if k.startswith(prefix)]
+        profiles = [f for f in files if f.endswith(PROFILE_EXTENSIONS)]
+        if not profiles:
+            continue
+
+        links = []
+        for name in profiles:
+            disposition = f'attachment; filename="vpn-{cloud}-{name}"'
+            url = presign(prefix + name, ResponseContentDisposition=disposition)
+            links.append(f'<a href="{html.escape(url)}">{html.escape(name)}</a>')
+        send_message(chat_id, f"<b>{title}</b> (links expire in 5 minutes):\n" + "\n".join(links), "HTML")
+
+        for name in files:
+            if name.endswith(".png"):
+                url = presign(prefix + name, ResponseContentType="image/png")
+                send_photo(chat_id, url, f"{title}: {name.removesuffix('.png')}")
+        sent = True
+
+    if not sent:
+        send_message(chat_id, "The profile is removed or not available yet.")
+
+
+def run_workflow(chat_id, action, cloud, protocol):
+    rc = gh_dispatch(action, cloud, protocol)
+    if rc == 204:
+        what = f"{action} {protocol}" if action == "apply" else action
+        send_message(chat_id, f"The job is launched ({what} in {CLOUDS[cloud]}), please track the status.")
+    else:
+        send_message(chat_id, f"Cannot call GitHub, response code: {rc}. Please check the logs.")
 
 
 def presented_in(patterns, message):
-    for pattern in patterns:
-        if pattern in message:
-            return True
-    return False
+    return any(pattern in message for pattern in patterns)
+
+
+def handle_message(chat_id, first_name, message):
+    split = message.split()
+    cloud = "yandex" if presented_in(YANDEX_WORDS, split) else "aws"
+    protocol = "openvpn" if presented_in(OPENVPN_WORDS, split) else "wireguard"
+
+    if presented_in(["hi", "hello", "hey"], split):
+        send_message(chat_id, f"Long time no see, {first_name}!")
+
+    elif presented_in(["how are you", "how is it going"], message):
+        send_message(chat_id, "Not that bad! What are we doing today?")
+
+    elif presented_in(["run", "deploy", "launch"], split):
+        run_workflow(chat_id, "apply", cloud, protocol)
+
+    elif presented_in(["status", "now", "track", "profile", "link", "config"], split):
+        gh_track(chat_id)
+        send_profiles(chat_id)
+
+    elif presented_in(["thank"], message):
+        send_message(chat_id, "I know you’d do the same for me.")
+
+    elif presented_in(["destroy"], split):
+        run_workflow(chat_id, "destroy", cloud, protocol)
+
+    elif presented_in(["bye"], message):
+        send_message(chat_id, f"Talk to you soon, {first_name}!")
+
+    else:
+        send_message(chat_id, "Thank you... Thank you for being so dumb!")
 
 
 def handler(event, context):
+    headers = event.get("headers") or {}
+    if not hmac.compare_digest(headers.get("x-telegram-bot-api-secret-token", ""), WEBHOOK_SECRET):
+        logger.warning("Rejected a request without a valid webhook secret")
+        return {"statusCode": 401}
+
     try:
-        data = json.loads(event["body"])
-        message = str(data["message"]["text"]).lower()
-        split = message.split()
-        chat_id = data["message"]["chat"]["id"]
-        first_name = data["message"]["chat"]["first_name"]
-                
-        if presented_in(["hi", "hello", "hey"], split):
-            send_message(chat_id, f"Long time no see, {first_name}!")
+        update = json.loads(event["body"])
+        msg = update.get("message") or {}
+        chat = msg.get("chat") or {}
+        chat_id = chat.get("id")
+        text = msg.get("text")
 
-        elif presented_in(["how are you", "how is it going"], message):
-            send_message(chat_id, "Not that bad! What are we doing today?")
-
-        elif presented_in(["run", "deploy", "launch"], split):
-            rc = gh_dispatch("apply")
-            if rc == 204:
-                send_message(chat_id, f"The job is launched, please track the status.")
-            else:
-                send_message(chat_id, f"Cannot call GitHub, response code: {rc}. Please check the logs.")
-                raise Exception
-
-        elif presented_in(["status", "now", "track", "profile", "link", "config"], split):
-            gh_track(chat_id)
-            if prefix_exists(S3_BUCKET, S3_PROFILE):
-                s = S3_CLIENT.generate_presigned_url("get_object", Params={"Bucket": S3_BUCKET, "Key": S3_PROFILE},
-                                                     ExpiresIn=300)
-                send_message(chat_id, f"Download your VPN profile by [this]({s}) link", "MarkdownV2")
-            else:
-                send_message(chat_id, "The profile is removed or not available yet.")
-
-        elif presented_in(["thank"], message):
-            send_message(chat_id, "I know you’d do the same for me.")
-
-        elif presented_in(["destroy"], split):
-            rc = gh_dispatch("destroy")
-            if rc == 204:
-                send_message(chat_id, f"The job is launched, please track the status.")
-            else:
-                send_message(chat_id, f"Cannot call GitHub, response code: {rc}. Please check the logs.")
-                raise Exception
-            s = S3_CLIENT.delete_object(Bucket=S3_BUCKET, Key=S3_PROFILE)
-
-        elif presented_in(["bye"], message):
-            send_message(chat_id, f"Talk to you soon, {first_name}!")
-
-        else:
-            send_message(chat_id, "Thank you... Thank you for being so dumb!")
-
-    except Exception as e:
-        print(e)
+        if chat_id not in ALLOWED_CHAT_IDS:
+            logger.warning("Ignoring a message from chat_id=%s", chat_id)
+        elif text:
+            handle_message(chat_id, chat.get("first_name", "there"), text.lower())
+    except Exception:
+        # Telegram retries non-2xx responses, so errors are only logged
+        logger.exception("Failed to handle the update")
 
     return {"statusCode": 200}
