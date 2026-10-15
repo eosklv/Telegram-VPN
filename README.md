@@ -74,6 +74,7 @@ flowchart TD
 
 | Path | What |
 |---|---|
+| `terraform/bootstrap` | State bucket, GitHub OIDC provider and role, applied locally (state key `bootstrap/terraform.tfstate`) |
 | `terraform/aws` | VPN server in AWS (state key `terraform/terraform.tfstate`) |
 | `terraform/yandex` | VPN server in Yandex Cloud (state key `terraform/yandex.tfstate`) |
 | `terraform/bot` | Telegram bot: Lambda, HTTP API, IAM (state key `terraform/bot.tfstate`) |
@@ -101,7 +102,23 @@ GitHub repository variables:
 
 GitHub repository secrets: `TELEGRAM_TOKEN`, `GH_TOKEN` (fine-grained token with `Actions: read and write` on this repository).
 
-The `GH_ROLE` role needs access to the S3 bucket, EC2, and Lambda, API Gateway, IAM and CloudWatch Logs for the bot.
+### Bootstrap
+
+`terraform/bootstrap` manages what the workflows themselves depend on, so it is applied locally with admin credentials rather than by GitHub Actions:
+
+- the S3 bucket: versioning, SSE-S3 encryption with SSE-C blocked, public access block, TLS-only bucket policy, lifecycle that keeps the last 5 old versions of every file and expires older ones after 30 days, and expires old versions of deleted client profiles after 1 day;
+- the GitHub OIDC provider and the `GH_ROLE` role. The role trusts only the `main` branch of this repository by GitHub's immutable OIDC subject, which includes the owner and repository IDs, so a repository recreated under the same name cannot assume it. After a rename update `github_owner` / `github_repository`;
+- a least-privilege inline policy of the role: the Terraform states and their locks, `profiles/`, the VPN server in EC2, and the bot's Lambda, HTTP API, log group and IAM role;
+- the permissions boundary of the bot's Lambda role. The GitHub role can write the bot role's policies only while this boundary is set, so it cannot grant itself more through the bot.
+
+The state is kept under `bootstrap/`, out of the GitHub role's reach:
+
+```bash
+terraform -chdir=terraform/bootstrap init -backend-config="bucket=<bucket>" -backend-config="region=eu-north-1"
+terraform -chdir=terraform/bootstrap apply
+```
+
+The bucket and the role were originally created by hand and are adopted with `import` blocks (`imports.tf`), so the first apply changes them in place. In a new account, create the bucket by hand first, since the state lives in it, drop the `import` blocks of the OIDC provider and the role, and set the `github_*` variables (IDs: `gh api repos/<owner>/<repo> --jq '.owner.id, .id'`).
 
 ### Yandex Cloud
 

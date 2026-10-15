@@ -46,6 +46,8 @@ resource "random_password" "webhook_secret" {
 
 # Lambda
 
+data "aws_caller_identity" "current" {}
+
 data "aws_iam_policy_document" "assume_lambda" {
   statement {
     actions = ["sts:AssumeRole"]
@@ -59,6 +61,9 @@ data "aws_iam_policy_document" "assume_lambda" {
 resource "aws_iam_role" "bot" {
   name               = "${var.function_name}-lambda"
   assume_role_policy = data.aws_iam_policy_document.assume_lambda.json
+
+  # Created by terraform/bootstrap; the GitHub role may change this role only with the boundary set
+  permissions_boundary = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/${var.function_name}-lambda-boundary"
 }
 
 resource "aws_iam_role_policy_attachment" "bot_logs" {
