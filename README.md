@@ -14,7 +14,7 @@ This is just an example of such an implementation that can be (and will be) endl
 
 **IaC:** Terraform
 
-**VPN Server:** WireGuard or OpenVPN, Ubuntu 24.04 LTS, cloud-init
+**VPN Server:** WireGuard or OpenVPN, Ubuntu 24.04 LTS, [cloud-init](https://cloud-init.io/)
 
 **Telegram bot:** AWS Lambda (Python 3.13), AWS API Gateway (HTTP API)
 
@@ -24,7 +24,7 @@ Technically, the process is structured as follows:
 
 When receiving a new message, Telegram calls a webhook configured in AWS API Gateway which launches a handler function in AWS Lambda. The webhook is protected with a secret token, and the bot only talks to allowed chat IDs. The function and the API are deployed with Terraform by GitHub Actions.
 
-Depending on the selected action the bot will respond and launch the `deploy_vpn.yml` workflow in GitHub Actions with the target cloud and protocol. Before applying, the workflow generates a temporary presigned S3 POST that allows uploading files only under `profiles/<cloud>/`. Terraform creates the server with a static public IP and passes the bootstrap script, VPN configs and the upload credentials via cloud-init, so the server needs no cloud credentials at all. The script installs WireGuard (keys and a QR code per client) or OpenVPN (Certification Authority and certificates), configures IP forwarding and the firewall, builds client profiles and uploads them to S3. Download links (temporary S3 presigned URLs) and QR codes are sent to the user by the Telegram bot.
+Depending on the selected action the bot will respond and launch the `deploy_vpn.yml` workflow in GitHub Actions with the target cloud and protocol. Before applying, the workflow generates a temporary presigned S3 POST that allows uploading files only under `profiles/<cloud>/`. Terraform creates the server with a static public IP and passes the bootstrap script, VPN configs and the upload credentials in the server's user data as a [cloud-init](https://cloud-init.io/) config (cloud-init is the standard first-boot initialization tool of cloud Linux images; the config is rendered by the `terraform/modules/cloud-init` module), so the server needs no cloud credentials at all. The script installs WireGuard (keys and a QR code per client) or OpenVPN (Certification Authority and certificates), configures IP forwarding and the firewall, builds client profiles and uploads them to S3. Download links (temporary S3 presigned URLs) and QR codes are sent to the user by the Telegram bot.
 
 ## Bot commands
 
@@ -34,7 +34,12 @@ Depending on the selected action the bot will respond and launch the `deploy_vpn
 | `deploy yandex` | WireGuard server in Yandex Cloud |
 | `deploy openvpn`, `deploy yandex openvpn` | OpenVPN on 443/tcp, for networks where UDP is blocked |
 | `link`, `status` | Last job status, profile links and QR codes |
+| `profile` | Profile download links only |
+| `qr` | QR codes only (WireGuard), scan them in the WireGuard mobile app |
 | `destroy`, `destroy yandex` | Destroy the server |
+| `start`, `hi` | Greeting |
+
+Commands work with or without a leading slash (`/link` and `link`); the main ones are also registered in the Telegram command menu by the bot deployment workflow.
 
 WireGuard creates a profile per device (`phone` and `laptop` by default, see the `wireguard_peers` variable), since one WireGuard key cannot be used by two devices at the same time.
 
@@ -42,7 +47,7 @@ WireGuard creates a profile per device (`phone` and `laptop` by default, see the
 
 ```mermaid
 flowchart TD
-    user(["User"]) <-->|"deploy / link / destroy<br/>profile links, QR codes"| tg["Telegram"]
+    user(["User"]) <-->|"deploy / link / qr / destroy<br/>profile links, QR codes"| tg["Telegram"]
     tg -->|"webhook + secret token"| api
 
     subgraph bot_stack["Telegram bot · terraform/bot"]
@@ -72,7 +77,7 @@ flowchart TD
 | `terraform/aws` | VPN server in AWS (state key `terraform/terraform.tfstate`) |
 | `terraform/yandex` | VPN server in Yandex Cloud (state key `terraform/yandex.tfstate`) |
 | `terraform/bot` | Telegram bot: Lambda, HTTP API, IAM (state key `terraform/bot.tfstate`) |
-| `terraform/modules/cloud-init` | cloud-config shared by both clouds |
+| `terraform/modules/cloud-init` | Renders the cloud-init config (bootstrap script, VPN configs, upload credentials) shared by both clouds |
 | `scripts/bootscript.sh`, `configs/` | Server bootstrap, WireGuard and OpenVPN configs |
 
 All states are stored in the same S3 bucket; the bucket and region are passed with `-backend-config`:
@@ -104,12 +109,12 @@ GitHub Actions authenticates in Yandex Cloud with [Workload Identity Federation]
 
 1. Create a service account with the `compute.editor` and `vpc.admin` roles on the folder.
 2. Create an OIDC federation: issuer `https://token.actions.githubusercontent.com`, audience `https://github.com/<github_owner>`, JWKS `https://token.actions.githubusercontent.com/.well-known/jwks`.
-3. Link the service account to the federation with the subject `repo:<github_owner>/vpn:ref:refs/heads/main`.
+3. Link the service account to the federation with the subject `repo:<github_owner>/<repository>:ref:refs/heads/main`.
 4. Set `YC_SA_ID`, `YC_CLOUD_ID` and `YC_FOLDER_ID` variables in the repository.
 
 ## Versions
 
-- [v1.0](https://github.com/eosklv/vpn/releases/tag/v1.0) — the original version: OpenVPN in AWS only, Telegram bot deployed with Serverless Framework.
+- [v1.0](https://github.com/eosklv/Telegram-VPN/releases/tag/v1.0) — the original version: OpenVPN in AWS only, Telegram bot deployed with Serverless Framework.
 - v2.0 — WireGuard, Yandex Cloud, everything deployed with Terraform.
 
 ## Author
