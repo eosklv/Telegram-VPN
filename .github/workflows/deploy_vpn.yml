@@ -1,22 +1,42 @@
-name: Deploy infrastructure using Terraform
+name: Deploy VPN server
+run-name: ${{ inputs.action == 'apply' && format('apply {0} VPN in {1}', inputs.protocol, inputs.cloud) || format('destroy VPN in {0}', inputs.cloud) }}
 on:
   workflow_dispatch:
     inputs:
       action:
         type: choice
         required: true
-        options: 
-        - apply
-        - destroy
+        options:
+          - apply
+          - destroy
+      cloud:
+        type: choice
+        required: true
+        default: aws
+        options:
+          - aws
+          - yandex
+      protocol:
+        type: choice
+        required: true
+        default: wireguard
+        options:
+          - wireguard
+          - openvpn
 permissions:
   id-token: write
   contents: read
-defaults:
-  run:
-    working-directory: "terraform"
+concurrency:
+  group: vpn-${{ inputs.cloud }}
+  cancel-in-progress: false
+env:
+  TF_DIR: terraform/${{ inputs.cloud }}
+  TF_IN_AUTOMATION: "true"
+  TF_VAR_protocol: ${{ inputs.protocol }}
+  PROFILE_PREFIX: profiles/${{ inputs.cloud }}/
 jobs:
   deploy:
-    name: Terraform init and apply or destroy
+    name: Terraform ${{ inputs.action }} in ${{ inputs.cloud }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository code
@@ -26,7 +46,60 @@ jobs:
         with:
           role-to-assume: ${{ vars.GH_ROLE }}
           aws-region: ${{ vars.AWS_REGION }}
+      - name: Get Yandex Cloud IAM token
+        if: inputs.cloud == 'yandex'
+        env:
+          YC_SA_ID: ${{ vars.YC_SA_ID }}
+          OIDC_AUDIENCE: https://github.com/${{ github.repository_owner }}
+        run: |
+          gh_token=$(curl -sSf -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${OIDC_AUDIENCE}" | jq -er .value)
+          iam_token=$(curl -sSf -X POST https://auth.yandex.cloud/oauth/token \
+            --data-urlencode "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
+            --data-urlencode "requested_token_type=urn:ietf:params:oauth:token-type:access_token" \
+            --data-urlencode "audience=${YC_SA_ID}" \
+            --data-urlencode "subject_token=${gh_token}" \
+            --data-urlencode "subject_token_type=urn:ietf:params:oauth:token-type:id_token" | jq -er .access_token)
+          echo "::add-mask::${iam_token}"
+          {
+            echo "YC_TOKEN=${iam_token}"
+            echo "YC_CLOUD_ID=${{ vars.YC_CLOUD_ID }}"
+            echo "YC_FOLDER_ID=${{ vars.YC_FOLDER_ID }}"
+          } >> "$GITHUB_ENV"
+      - name: Set up Python
+        if: inputs.action == 'apply'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Presign profile upload
+        if: inputs.action == 'apply'
+        run: |
+          pip install --quiet boto3
+          upload=$(python .github/scripts/presign_post.py "${{ vars.S3_BUCKET }}" "${PROFILE_PREFIX}" 3600)
+          for secret in $(jq -r '.fields | (."x-amz-signature", ."x-amz-security-token", .policy) | values' <<< "${upload}"); do
+            echo "::add-mask::${secret}"
+          done
+          echo "TF_VAR_profile_upload=${upload}" >> "$GITHUB_ENV"
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
-      - run: terraform init
-      - run: terraform ${{ inputs.action }} --auto-approve
+        with:
+          terraform_version: "1.16.6"
+          terraform_wrapper: false
+      - name: Terraform init
+        run: |
+          terraform -chdir="${TF_DIR}" init -input=false \
+            -backend-config="bucket=${{ vars.S3_BUCKET }}" \
+            -backend-config="region=${{ vars.AWS_REGION }}"
+      - name: Terraform plan
+        run: terraform -chdir="${TF_DIR}" plan -input=false -out=tfplan ${{ inputs.action == 'destroy' && '-destroy' || '' }}
+      # A new server uploads new profiles, the old ones must not be offered by the bot meanwhile
+      - name: Remove outdated client profiles
+        run: |
+          changes=$(terraform -chdir="${TF_DIR}" show -json tfplan | jq '[.resource_changes[]
+            | select(.type | test("_instance$"))
+            | select(.change.actions | index("create") or index("delete"))] | length')
+          if [ "${changes}" -gt 0 ]; then
+            aws s3 rm --recursive "s3://${{ vars.S3_BUCKET }}/${PROFILE_PREFIX}"
+          fi
+      - name: Terraform ${{ inputs.action }}
+        run: terraform -chdir="${TF_DIR}" apply -input=false tfplan
