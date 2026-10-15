@@ -1,7 +1,6 @@
 variable "region" {
   description = "AWS region for the bot"
   type        = string
-  default     = "eu-north-1"
 }
 
 variable "function_name" {
@@ -35,7 +34,6 @@ variable "github_token" {
 variable "github_repo" {
   description = "Repository with the deploy workflow, owner/name"
   type        = string
-  default     = "eosklv/VPN-Telegram-AI-Bot"
 }
 
 variable "profile_bucket" {
@@ -50,7 +48,13 @@ variable "profile_prefix" {
 }
 
 variable "bedrock_model_id" {
-  description = "Bedrock model or inference profile that understands free-text messages, empty for keywords only"
+  description = "Bedrock model or inference profile that understands free-text messages; auto picks the Amazon Nova Micro profile of the region's geography (eu., us., apac.), none or empty for keywords only"
   type        = string
-  default     = "eu.amazon.nova-micro-v1:0"
+  default     = "auto"
+}
+
+variable "aws_location" {
+  description = "Location shown by the bot for AWS servers, empty derives it from the region (eu-north-1 -> Stockholm)"
+  type        = string
+  default     = ""
 }

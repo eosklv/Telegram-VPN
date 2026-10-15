@@ -46,6 +46,8 @@ jobs:
           TF_VAR_telegram_token: ${{ secrets.TELEGRAM_TOKEN }}
           TF_VAR_github_token: ${{ secrets.GH_TOKEN }}
           TF_VAR_github_repo: ${{ github.repository }}
+          TF_VAR_bedrock_model_id: ${{ vars.BEDROCK_MODEL_ID || 'auto' }}
+          TF_VAR_aws_location: ${{ vars.AWS_LOCATION }}
         run: terraform -chdir="${TF_DIR}" apply -input=false -auto-approve
       - name: Register Telegram webhook
         env:

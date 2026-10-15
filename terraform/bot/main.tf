@@ -95,8 +95,14 @@ resource "aws_iam_role_policy" "bot_profiles" {
 }
 
 locals {
+  # Cross-region inference profiles are per geography; elsewhere the model is called in the region itself
+  bedrock_geo = lookup({ eu = "eu.", us = "us.", ap = "apac." }, split("-", var.region)[0], "")
+  bedrock_model_id = (
+    var.bedrock_model_id == "auto" ? "${local.bedrock_geo}amazon.nova-micro-v1:0" :
+    var.bedrock_model_id == "none" ? "" : var.bedrock_model_id
+  )
   # "eu.amazon.nova-micro-v1:0" -> "amazon.nova-micro-v1:0"
-  bedrock_foundation_model = replace(var.bedrock_model_id, "/^(eu|us|apac|global)\\./", "")
+  bedrock_foundation_model = replace(local.bedrock_model_id, "/^(eu|us|apac|global)\\./", "")
 }
 
 # A cross-region inference profile needs access to the profile and to the model in every region it routes to
@@ -104,14 +110,14 @@ data "aws_iam_policy_document" "bot_bedrock" {
   statement {
     actions = ["bedrock:InvokeModel"]
     resources = [
-      "arn:aws:bedrock:${var.region}:${data.aws_caller_identity.current.account_id}:inference-profile/${var.bedrock_model_id}",
+      "arn:aws:bedrock:${var.region}:${data.aws_caller_identity.current.account_id}:inference-profile/${local.bedrock_model_id}",
       "arn:aws:bedrock:*::foundation-model/${local.bedrock_foundation_model}",
     ]
   }
 }
 
 resource "aws_iam_role_policy" "bot_bedrock" {
-  count = var.bedrock_model_id == "" ? 0 : 1
+  count = local.bedrock_model_id == "" ? 0 : 1
 
   name   = "invoke-bedrock"
   role   = aws_iam_role.bot.id
@@ -144,7 +150,8 @@ resource "aws_lambda_function" "bot" {
       GH_REPO                 = var.github_repo
       S3_BUCKET               = var.profile_bucket
       S3_PROFILE_PREFIX       = var.profile_prefix
-      BEDROCK_MODEL_ID        = var.bedrock_model_id
+      BEDROCK_MODEL_ID        = local.bedrock_model_id
+      VPN_AWS_LOCATION        = var.aws_location
     }
   }
 
