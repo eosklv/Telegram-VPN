@@ -95,7 +95,7 @@ jobs:
       # A new server uploads new profiles, the old ones must not be offered by the bot meanwhile
       - name: Remove outdated client profiles
         run: |
-          changes=$(terraform -chdir="${TF_DIR}" show -json tfplan | jq '[.resource_changes[]
+          changes=$(terraform -chdir="${TF_DIR}" show -json tfplan | jq '[.resource_changes[]?
             | select(.type | test("_instance$"))
             | select(.change.actions | index("create") or index("delete"))] | length')
           if [ "${changes}" -gt 0 ]; then
