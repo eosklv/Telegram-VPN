@@ -1,9 +1,9 @@
 
-# Deploying VPN from Telegram
+# VPN Telegram AI Bot
 
 This project was created to demonstrate the capabilities of cloud engineering and process automation using various CI/CD and IaC tools.
 
-By casually talking with the [Telegram chatbot](https://core.telegram.org/bots/api), the user can create his own [WireGuard](https://www.wireguard.com/) or [OpenVPN](https://openvpn.net/) server with a dedicated public IP address either in AWS Stockholm or in Yandex Cloud. When the work is done, the entire infrastructure can be automatically destroyed.
+By talking with the [Telegram chatbot](https://core.telegram.org/bots/api) in plain language (an AI model picks the action) or by tapping its buttons, the user can create his own [WireGuard](https://www.wireguard.com/) or [OpenVPN](https://openvpn.net/) server with a dedicated public IP address either in AWS Stockholm or in Yandex Cloud. When the work is done, the entire infrastructure can be automatically destroyed.
 
 This is just an example of such an implementation that can be (and will be) endlessly improved in many ways.
 
@@ -161,7 +161,7 @@ GitHub Actions authenticates in Yandex Cloud with [Workload Identity Federation]
 
 ## Versions
 
-- [v1.0](https://github.com/eosklv/Telegram-VPN/releases/tag/v1.0) — the original version: OpenVPN in AWS only, Telegram bot deployed with Serverless Framework.
+- [v1.0](https://github.com/eosklv/VPN-Telegram-AI-Bot/releases/tag/v1.0) — the original version: OpenVPN in AWS only, Telegram bot deployed with Serverless Framework.
 - v2.0 — WireGuard, Yandex Cloud, everything deployed with Terraform.
 
 ## Author
