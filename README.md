@@ -18,6 +18,8 @@ This is just an example of such an implementation that can be (and will be) endl
 
 **Telegram bot:** AWS Lambda (Python 3.13), AWS API Gateway (HTTP API)
 
+**AI:** Amazon Bedrock (Amazon Nova Micro) with tool use for free-text messages, keyword parser as a fallback
+
 **CI/CD:** GitHub Actions
 
 Technically, the process is structured as follows:
@@ -34,11 +36,31 @@ Depending on the selected action the bot will respond and launch the `deploy_vpn
 | `/deploy_openvpn` | `deploy openvpn` | OpenVPN on 443/tcp in AWS, for networks where UDP is blocked |
 | `/deploy_yandex` | `deploy yandex` | WireGuard server in Yandex Cloud |
 | `/deploy_yandex_openvpn` | `deploy yandex openvpn` | OpenVPN on 443/tcp in Yandex Cloud |
-| `/profiles` | `profiles`, `link`, `status` | Last job status, profile links and QR codes |
-| `/destroy` | `destroy` | Destroy the AWS server |
-| `/destroy_yandex` | `destroy yandex` | Destroy the Yandex Cloud server |
+| `/status` | `status`, `profiles`, `link` | Last job status, profile links and QR codes |
+| `/why` | `why` | Why the last job failed |
+| `/destroy` | `destroy` | Destroy the AWS server, after confirmation |
+| `/destroy_yandex` | `destroy yandex` | Destroy the Yandex Cloud server, after confirmation |
 
 The menu is registered in Telegram by the bot deployment workflow. Menu commands cannot contain spaces, so the bot reads `_` as a space; any command also works as plain text, with or without the slash. A few extra text commands are not in the menu: `profile` (profile links only), `qr` (QR codes only, for the WireGuard mobile app) and `start` / `hi` (greeting).
+
+Every reply of the bot carries a persistent keyboard with the main commands, so they are one tap away:
+
+| | | |
+|---|---|---|
+| `deploy` | `deploy openvpn` | |
+| `deploy yandex` | `deploy yandex openvpn` | |
+| `status` | `destroy` | `destroy yandex` |
+
+A button sends its text as a message, so it works exactly like the typed command.
+
+### Free text
+
+Anything else can be written in plain words: *"spin up a VPN in Yandex that works over TCP"*, *"send me the QR code"*, *"why did the last deploy fail?"*, *"tear it down"*. Such messages go to [Amazon Nova Micro](https://aws.amazon.com/nova/) in Amazon Bedrock through the Converse API with tool use. The model only picks one of the bot's actions (`deploy`, `destroy`, `status`, `profiles`, `profile`, `qr`, `explain_failure`) and its arguments, or replies to small talk; the actions themselves are the same deterministic functions the commands use, and their arguments are validated before use.
+
+- **Exact commands skip the model.** Keyboard buttons, menu commands (with or without `@BotName`) and `start` / `hi` go straight to the handlers, so they are instant and cost nothing.
+- **Confirmation.** `destroy` always asks for an inline *Yes, destroy* / *Cancel* confirmation, whether it comes from a button, a command or free text. `deploy` from a button or a command starts at once, while `deploy` understood from free text is confirmed with *Yes, deploy* / *Cancel*, so a misunderstood message never launches a job. The confirmation carries the action in its callback data, so no state is stored; it expires after 10 minutes, and the buttons are removed once pressed.
+- **Fallback.** If Bedrock fails, times out (8 s) or returns nothing usable, the message is handled by the keyword parser, so the bot keeps working without the model. An empty `bedrock_model_id` turns the model off completely.
+- **Why it failed.** `/why` or a question about a failure fetches the log of the failed job of the last `deploy_vpn.yml` run through the GitHub API and asks the model, with no tools available, for a short explanation and the likely fix. The log is downloaded from GitHub's blob storage without the GitHub token. Without the model, the bot sends the end of the log.
 
 WireGuard creates a profile per device (`phone` and `laptop` by default, see the `wireguard_peers` variable), since one WireGuard key cannot be used by two devices at the same time.
 
@@ -46,13 +68,14 @@ WireGuard creates a profile per device (`phone` and `laptop` by default, see the
 
 ```mermaid
 flowchart TD
-    user(["User"]) <-->|"deploy / profiles / destroy<br/>profile links, QR codes"| tg["Telegram"]
+    user(["User"]) <-->|"deploy / status / destroy, free text<br/>profile links, QR codes"| tg["Telegram"]
     tg -->|"webhook + secret token"| api
 
     subgraph bot_stack["Telegram bot · terraform/bot"]
         api["API Gateway<br/>HTTP API"] --> bot["Lambda<br/>tg-bot"]
     end
 
+    bot <-->|"free text → tool call<br/>IAM role, no API key"| llm["Amazon Bedrock<br/>Nova Micro"]
     bot -->|"workflow_dispatch<br/>action, cloud, protocol"| gha["GitHub Actions<br/>deploy_vpn.yml"]
     gha -->|"AWS OIDC role /<br/>Yandex Cloud WIF"| tf["Terraform"]
 
@@ -101,6 +124,14 @@ GitHub repository variables:
 
 GitHub repository secrets: `TELEGRAM_TOKEN`, `GH_TOKEN` (fine-grained token with `Actions: read and write` on this repository).
 
+### Amazon Bedrock
+
+The bot calls Bedrock with its Lambda role, so there is no API key to store. The default model is the EU cross-region inference profile `eu.amazon.nova-micro-v1:0` (`bedrock_model_id` in `terraform/bot`): requests from `eu-north-1` are served in EU regions only, and the role gets `bedrock:InvokeModel` on the profile and on the model in the regions it routes to. The bot's permissions boundary (see below) allows only Amazon Nova models, so apply `terraform/bootstrap` before deploying a bot version that uses Bedrock.
+
+Check the account's Bedrock quotas in Service Quotas for `eu-north-1`: *Cross-region model inference requests per minute* and *Model invocation max tokens per day* for Amazon Nova Micro. New and low-spend accounts may have them at 0, and these quotas can only be raised through an AWS Support case. Until then every call is throttled and the bot simply stays on keywords.
+
+At about 2,000 input and 300 output tokens per message, the model costs a small fraction of a cent per message.
+
 ### Bootstrap
 
 `terraform/bootstrap` manages what the workflows themselves depend on, so it is applied locally with admin credentials rather than by GitHub Actions:
@@ -108,7 +139,7 @@ GitHub repository secrets: `TELEGRAM_TOKEN`, `GH_TOKEN` (fine-grained token with
 - the S3 bucket: versioning, SSE-S3 encryption with SSE-C blocked, public access block, TLS-only bucket policy, lifecycle that expires old state versions after 90 days and old versions of deleted client profiles after 1 day;
 - the GitHub OIDC provider and the `GH_ROLE` role. The role trusts only the `main` branch of this repository by GitHub's immutable OIDC subject, which includes the owner and repository IDs, so a repository recreated under the same name cannot assume it. After a rename update `github_owner` / `github_repository`;
 - a least-privilege inline policy of the role: the Terraform states and their locks, `profiles/`, the VPN server in EC2, and the bot's Lambda, HTTP API, log group and IAM role;
-- the permissions boundary of the bot's Lambda role. The GitHub role can write the bot role's policies only while this boundary is set, so it cannot grant itself more through the bot.
+- the permissions boundary of the bot's Lambda role. The GitHub role can write the bot role's policies only while this boundary is set, so it cannot grant itself more through the bot. Besides the logs and the profiles, the boundary allows invoking Amazon Nova models in Bedrock.
 
 The state is kept under `bootstrap/`, out of the GitHub role's reach:
 
