@@ -1,5 +1,5 @@
 .DS_Store
 .terraform/
 .idea/
-.serverless/
-/telegram/vendored/
+.build/
+__pycache__/
