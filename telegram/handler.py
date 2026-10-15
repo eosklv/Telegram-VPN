@@ -134,8 +134,8 @@ def presented_in(patterns, message):
 
 
 def handle_message(chat_id, first_name, message):
-    # "/link@SomeBot" -> "link", so slash commands work like plain words
-    split = [word.lstrip("/").split("@")[0] for word in message.split()]
+    # "/deploy_yandex@SomeBot" -> "deploy yandex": menu commands cannot contain spaces
+    split = [part for word in message.split() for part in word.lstrip("/").split("@")[0].split("_") if part]
     cloud = "yandex" if presented_in(YANDEX_WORDS, split) else "aws"
     protocol = "openvpn" if presented_in(OPENVPN_WORDS, split) else "wireguard"
 
@@ -151,10 +151,10 @@ def handle_message(chat_id, first_name, message):
     elif presented_in(["qr"], split):
         send_profiles(chat_id, links=False)
 
-    elif presented_in(["profile", "profiles", "config"], split):
+    elif presented_in(["profile", "config"], split):
         send_profiles(chat_id, qr_codes=False)
 
-    elif presented_in(["status", "now", "track", "link"], split):
+    elif presented_in(["profiles", "status", "now", "track", "link"], split):
         gh_track(chat_id)
         send_profiles(chat_id)
 

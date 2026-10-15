@@ -63,11 +63,13 @@ jobs:
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           COMMANDS: >-
-            [{"command": "deploy", "description": "Create a WireGuard server in AWS"},
-            {"command": "link", "description": "Job status, profiles and QR codes"},
-            {"command": "profile", "description": "Profile download links"},
-            {"command": "qr", "description": "QR codes for the WireGuard app"},
-            {"command": "destroy", "description": "Destroy the server"}]
+            [{"command": "deploy", "description": "WireGuard server in AWS"},
+            {"command": "deploy_openvpn", "description": "OpenVPN (443/tcp) server in AWS"},
+            {"command": "deploy_yandex", "description": "WireGuard server in Yandex Cloud"},
+            {"command": "deploy_yandex_openvpn", "description": "OpenVPN (443/tcp) server in Yandex Cloud"},
+            {"command": "profiles", "description": "Job status, profile links and QR codes"},
+            {"command": "destroy", "description": "Destroy the AWS server"},
+            {"command": "destroy_yandex", "description": "Destroy the Yandex Cloud server"}]
         run: |
           curl -sSf "https://api.telegram.org/bot${TELEGRAM_TOKEN}/setMyCommands" \
             --data-urlencode "commands=${COMMANDS}" > /dev/null
