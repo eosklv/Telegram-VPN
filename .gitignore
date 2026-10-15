@@ -3,3 +3,7 @@
 .idea/
 .build/
 __pycache__/
+terraform.tfvars
+*_override.tf
+*.tfstate
+*.tfstate.*

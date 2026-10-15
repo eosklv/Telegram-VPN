@@ -1,7 +1,6 @@
 variable "region" {
   description = "AWS region for the VPN server"
   type        = string
-  default     = "eu-north-1"
 }
 
 variable "instance_type" {

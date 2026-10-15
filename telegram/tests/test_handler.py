@@ -181,6 +181,7 @@ class RoutingTest(HandlerTestCase):
         request = self.converse.call_args.kwargs
         self.assertEqual(request["modelId"], "eu.amazon.nova-micro-v1:0")
         self.assertIn("Eugeny", request["system"][0]["text"])
+        self.assertIn("server in AWS Stockholm or Yandex Cloud", request["system"][0]["text"])
         self.assertEqual(request["messages"][0]["content"][0]["text"], "hey there")
 
     def test_reply_tags_and_markdown_are_removed(self):
@@ -442,6 +443,18 @@ class ExplainFailureTest(HandlerTestCase):
 
         self.gh_job_log.assert_not_called()
         self.assertEqual(self.http.texts(), ["The last job did not fail.\nLast job: apply wireguard in aws\nState: success"])
+
+
+class AwsLabelTest(unittest.TestCase):
+    def test_label_follows_the_region(self):
+        self.assertEqual(handler.CLOUDS["aws"], "AWS Stockholm")
+        self.assertEqual(handler.aws_label("us-east-1"), "AWS N. Virginia")
+
+    def test_unknown_region_is_shown_as_is(self):
+        self.assertEqual(handler.aws_label("mx-central-1"), "AWS mx-central-1")
+
+    def test_location_overrides_the_region(self):
+        self.assertEqual(handler.aws_label("eu-central-1", "Frankfurt am Main"), "AWS Frankfurt am Main")
 
 
 class JobLogTest(unittest.TestCase):

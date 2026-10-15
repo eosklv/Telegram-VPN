@@ -9,7 +9,8 @@ terraform {
   required_version = ">= 1.10.0"
 
   # Applied locally with admin credentials, the GitHub role has no access to this key.
-  # bucket and region are passed with -backend-config
+  # bucket and region are passed with -backend-config; the very first apply, which creates
+  # the bucket, runs with a local state that is migrated afterwards (see scripts/setup.sh)
   backend "s3" {
     key          = "bootstrap/terraform.tfstate"
     use_lockfile = true
@@ -39,7 +40,11 @@ locals {
   lambda_basic    = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
   boundary_arn    = "arn:aws:iam::${local.account_id}:policy/${local.bot_role_name}-boundary"
   github_oidc     = "token.actions.githubusercontent.com"
-  github_oidc_arn = "arn:aws:iam::${local.account_id}:oidc-provider/${local.github_oidc}"
+  github_oidc_arn = coalesce(var.github_oidc_provider_arn, one(aws_iam_openid_connect_provider.github[*].arn))
+  github_subject = (var.github_immutable_subject
+    ? "repo:${var.github_owner}@${var.github_owner_id}/${var.github_repository}@${var.github_repository_id}"
+    : "repo:${var.github_owner}/${var.github_repository}"
+  )
 }
 
 # S3 bucket for Terraform states and VPN client profiles
@@ -159,15 +164,22 @@ resource "aws_s3_bucket_policy" "state" {
   depends_on = [aws_s3_bucket_public_access_block.state]
 }
 
-# GitHub Actions OIDC
+# GitHub Actions OIDC, an account can have only one provider per URL
 
 resource "aws_iam_openid_connect_provider" "github" {
+  count = var.github_oidc_provider_arn == null ? 1 : 0
+
   url            = "https://${local.github_oidc}"
   client_id_list = ["sts.amazonaws.com"]
+
+  # Other repositories of the account may trust it as well
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
-# The repository uses immutable OIDC subjects (repo:<owner>@<owner_id>/<repo>@<repo_id>:...),
-# the IDs keep a recreated repository with the same name out.
+# Immutable OIDC subjects (repo:<owner>@<owner_id>/<repo>@<repo_id>:...) keep a recreated
+# repository with the same name out.
 data "aws_iam_policy_document" "github_trust" {
   statement {
     actions = ["sts:AssumeRoleWithWebIdentity"]
@@ -186,16 +198,14 @@ data "aws_iam_policy_document" "github_trust" {
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_owner}@${var.github_owner_id}/${var.github_repository}@${var.github_repository_id}:ref:refs/heads/${var.github_branch}"]
+      values   = ["${local.github_subject}:ref:refs/heads/${var.github_branch}"]
     }
   }
 }
 
 resource "aws_iam_role" "github" {
-  name               = "GithubAccess"
+  name               = var.github_role_name
   assume_role_policy = data.aws_iam_policy_document.github_trust.json
-
-  depends_on = [aws_iam_openid_connect_provider.github]
 }
 
 data "aws_iam_policy_document" "github" {

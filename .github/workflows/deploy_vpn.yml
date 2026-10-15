@@ -33,6 +33,7 @@ env:
   TF_DIR: terraform/${{ inputs.cloud }}
   TF_IN_AUTOMATION: "true"
   TF_VAR_protocol: ${{ inputs.protocol }}
+  TF_VAR_region: ${{ vars.AWS_REGION }}
   PROFILE_PREFIX: profiles/${{ inputs.cloud }}/
 jobs:
   deploy:

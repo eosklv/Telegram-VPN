@@ -1,0 +1,22 @@
+# Copy to terraform.tfvars (git-ignored) or let scripts/setup.sh write it
+
+region      = "eu-north-1"
+bucket_name = "vpn-123456789012-eu-north-1"
+
+# gh api repos/<owner>/<repo> --jq '.owner.login, .owner.id, .name, .id'
+github_owner         = "octocat"
+github_owner_id      = 583231
+github_repository    = "VPN-Telegram-AI-Bot"
+github_repository_id = 123456789
+
+# gh api repos/<owner>/<repo>/actions/oidc/customization/sub --jq .use_immutable_subject
+# github_immutable_subject = true
+
+# github_role_name = "vpn-github-actions"
+
+# Set when the account already has a GitHub OIDC provider, there can be only one:
+# aws iam list-open-id-connect-providers
+# github_oidc_provider_arn = "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
+
+# Adopt a bucket and a role created by hand, see imports.tf
+# import_existing = true

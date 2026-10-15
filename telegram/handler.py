@@ -40,7 +40,21 @@ BEDROCK_CLIENT = boto3.client(
     config=Config(connect_timeout=3, read_timeout=LLM_TIMEOUT, retries={"mode": "standard", "max_attempts": 1}),
 )
 
-CLOUDS = {"aws": "AWS Stockholm", "yandex": "Yandex Cloud"}
+AWS_LOCATIONS = {
+    "us-east-1": "N. Virginia", "us-east-2": "Ohio", "us-west-1": "N. California", "us-west-2": "Oregon",
+    "ca-central-1": "Canada", "sa-east-1": "São Paulo",
+    "eu-west-1": "Ireland", "eu-west-2": "London", "eu-west-3": "Paris", "eu-central-1": "Frankfurt",
+    "eu-central-2": "Zurich", "eu-north-1": "Stockholm", "eu-south-1": "Milan", "eu-south-2": "Spain",
+    "ap-south-1": "Mumbai", "ap-northeast-1": "Tokyo", "ap-northeast-2": "Seoul", "ap-northeast-3": "Osaka",
+    "ap-southeast-1": "Singapore", "ap-southeast-2": "Sydney",
+}
+
+
+def aws_label(region, location=""):
+    return f"AWS {location or AWS_LOCATIONS.get(region, region)}"
+
+
+CLOUDS = {"aws": aws_label(AWS_REGION, os.environ.get("VPN_AWS_LOCATION", "")), "yandex": "Yandex Cloud"}
 PROTOCOLS = {"wireguard": "WireGuard", "openvpn": "OpenVPN"}
 ACTIONS = ("apply", "destroy")
 YANDEX_WORDS = ["yandex", "yc"]
@@ -67,7 +81,7 @@ LOG_TAIL_CHARS = 12000
 HTTP_TIMEOUT = 10
 
 ROUTER_PROMPT = """You are the Telegram bot of a personal VPN service. The user can deploy a WireGuard or OpenVPN \
-server in AWS Stockholm or Yandex Cloud, get its client profiles and QR codes, check the status of the last job, \
+server in {aws} or Yandex Cloud, get its client profiles and QR codes, check the status of the last job, \
 destroy the server, or ask why the last job failed.
 
 Call the tool that matches the request. Use AWS and WireGuard unless the user mentions Yandex or OpenVPN; \
@@ -403,7 +417,7 @@ def handle_text(chat_id, first_name, text):
     direct = text.startswith("/") or " ".join(words(text)) in DIRECT_TEXTS
     if BEDROCK_MODEL_ID and not direct:
         try:
-            system = ROUTER_PROMPT.format(name=first_name)
+            system = ROUTER_PROMPT.format(name=first_name, aws=CLOUDS["aws"])
             reply, calls = converse(system, text, TOOLS)
             calls = [c for c in calls if c["name"] in TOOL_NAMES]
             if not (reply or calls):
