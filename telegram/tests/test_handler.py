@@ -183,6 +183,14 @@ class RoutingTest(HandlerTestCase):
         self.assertIn("Eugeny", request["system"][0]["text"])
         self.assertEqual(request["messages"][0]["content"][0]["text"], "hey there")
 
+    def test_reply_tags_and_markdown_are_removed(self):
+        self.converse.return_value = converse_response(
+            text_block("<response>Привет, **Eugeny**! Я в порядке.</response>")
+        )
+        self.message("как дела?")
+
+        self.assertEqual(self.http.texts(), ["Привет, Eugeny! Я в порядке."])
+
     def test_free_text_deploy_is_labelled(self):
         self.converse.return_value = converse_response(tool_block("deploy"))
         self.message("I need a VPN")
