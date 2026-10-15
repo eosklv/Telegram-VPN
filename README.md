@@ -41,18 +41,28 @@ WireGuard creates a profile per device (`phone` and `laptop` by default, see the
 ## Architecture
 
 ```mermaid
-flowchart LR
-    user(["User"]) -->|"deploy / link / destroy"| tg["Telegram"]
-    tg -->|"webhook + secret token"| api["API Gateway<br/>HTTP API"]
-    api --> bot["Lambda<br/>tg-bot"]
+flowchart TD
+    user(["User"]) <-->|"deploy / link / destroy<br/>profile links, QR codes"| tg["Telegram"]
+    tg -->|"webhook + secret token"| api
+
+    subgraph bot_stack["Telegram bot · terraform/bot"]
+        api["API Gateway<br/>HTTP API"] --> bot["Lambda<br/>tg-bot"]
+    end
+
     bot -->|"workflow_dispatch<br/>action, cloud, protocol"| gha["GitHub Actions<br/>deploy_vpn.yml"]
     gha -->|"AWS OIDC role /<br/>Yandex Cloud WIF"| tf["Terraform"]
-    tf --> ec2["EC2 + Elastic IP<br/>AWS Stockholm"]
-    tf -.-> ycvm["Compute VM<br/>Yandex Cloud"]
+
+    subgraph servers["VPN server · terraform/aws, terraform/yandex"]
+        ec2["EC2 + Elastic IP<br/>AWS Stockholm"]
+        ycvm["Compute VM<br/>Yandex Cloud"]
+    end
+
+    tf --> ec2
+    tf -.-> ycvm
     ec2 -->|"cloud-init: WireGuard / OpenVPN<br/>profiles + QR via presigned POST"| s3[("S3<br/>Terraform state + profiles")]
     ycvm -.-> s3
     s3 -->|"presigned links"| bot
-    bot -->|"profile links, QR codes"| tg
+    bot -->|"replies"| tg
 ```
 
 ## Repository layout
