@@ -98,8 +98,11 @@ resource "aws_s3_bucket_lifecycle_configuration" "state" {
 
     filter {}
 
+    # The last 5 old versions of every file are kept for a rollback however old they are,
+    # older ones go after 30 days (mostly the history of the .tflock lock files).
     noncurrent_version_expiration {
-      noncurrent_days = 90
+      noncurrent_days           = 30
+      newer_noncurrent_versions = 5
     }
 
     expiration {
