@@ -86,31 +86,37 @@ def presign(key, **response):
     return S3_CLIENT.generate_presigned_url("get_object", Params=params, ExpiresIn=LINK_TTL)
 
 
-def send_profiles(chat_id):
+def send_profiles(chat_id, links=True, qr_codes=True):
     res = S3_CLIENT.list_objects_v2(Bucket=S3_BUCKET, Prefix=S3_PROFILE_PREFIX)
     keys = sorted(obj["Key"] for obj in res.get("Contents", []))
-    sent = False
+    found_profiles = sent = False
     for cloud, title in CLOUDS.items():
         prefix = f"{S3_PROFILE_PREFIX}{cloud}/"
         files = [k.removeprefix(prefix) for k in keys if k.startswith(prefix)]
         profiles = [f for f in files if f.endswith(PROFILE_EXTENSIONS)]
-        if not profiles:
-            continue
+        found_profiles = found_profiles or bool(profiles)
 
-        links = []
-        for name in profiles:
-            disposition = f'attachment; filename="vpn-{cloud}-{name}"'
-            url = presign(prefix + name, ResponseContentDisposition=disposition)
-            links.append(f'<a href="{html.escape(url)}">{html.escape(name)}</a>')
-        send_message(chat_id, f"<b>{title}</b> (links expire in 5 minutes):\n" + "\n".join(links), "HTML")
+        if links and profiles:
+            items = []
+            for name in profiles:
+                disposition = f'attachment; filename="vpn-{cloud}-{name}"'
+                url = presign(prefix + name, ResponseContentDisposition=disposition)
+                items.append(f'<a href="{html.escape(url)}">{html.escape(name)}</a>')
+            send_message(chat_id, f"<b>{title}</b> (links expire in 5 minutes):\n" + "\n".join(items), "HTML")
+            sent = True
 
-        for name in files:
-            if name.endswith(".png"):
-                url = presign(prefix + name, ResponseContentType="image/png")
-                send_photo(chat_id, url, f"{title}: {name.removesuffix('.png')}")
-        sent = True
+        if qr_codes:
+            for name in files:
+                if name.endswith(".png"):
+                    url = presign(prefix + name, ResponseContentType="image/png")
+                    send_photo(chat_id, url, f"{title}: {name.removesuffix('.png')}")
+                    sent = True
 
-    if not sent:
+    if sent:
+        return
+    if found_profiles:
+        send_message(chat_id, "QR codes are only made for WireGuard, use /profile to get the OpenVPN profile.")
+    else:
         send_message(chat_id, "The profile is removed or not available yet.")
 
 
@@ -128,11 +134,12 @@ def presented_in(patterns, message):
 
 
 def handle_message(chat_id, first_name, message):
-    split = message.split()
+    # "/link@SomeBot" -> "link", so slash commands work like plain words
+    split = [word.lstrip("/").split("@")[0] for word in message.split()]
     cloud = "yandex" if presented_in(YANDEX_WORDS, split) else "aws"
     protocol = "openvpn" if presented_in(OPENVPN_WORDS, split) else "wireguard"
 
-    if presented_in(["hi", "hello", "hey"], split):
+    if presented_in(["hi", "hello", "hey", "start"], split):
         send_message(chat_id, f"Long time no see, {first_name}!")
 
     elif presented_in(["how are you", "how is it going"], message):
@@ -141,7 +148,13 @@ def handle_message(chat_id, first_name, message):
     elif presented_in(["run", "deploy", "launch"], split):
         run_workflow(chat_id, "apply", cloud, protocol)
 
-    elif presented_in(["status", "now", "track", "profile", "link", "config"], split):
+    elif presented_in(["qr"], split):
+        send_profiles(chat_id, links=False)
+
+    elif presented_in(["profile", "profiles", "config"], split):
+        send_profiles(chat_id, qr_codes=False)
+
+    elif presented_in(["status", "now", "track", "link"], split):
         gh_track(chat_id)
         send_profiles(chat_id)
 

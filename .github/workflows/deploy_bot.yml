@@ -45,6 +45,7 @@ jobs:
           TF_VAR_allowed_chat_ids: ${{ vars.TELEGRAM_ALLOWED_CHAT_IDS }}
           TF_VAR_telegram_token: ${{ secrets.TELEGRAM_TOKEN }}
           TF_VAR_github_token: ${{ secrets.GH_TOKEN }}
+          TF_VAR_github_repo: ${{ github.repository }}
         run: terraform -chdir="${TF_DIR}" apply -input=false -auto-approve
       - name: Register Telegram webhook
         env:
@@ -58,3 +59,15 @@ jobs:
             --data-urlencode "secret_token=${webhook_secret}" \
             --data-urlencode 'allowed_updates=["message"]' \
             --data-urlencode "drop_pending_updates=true" > /dev/null
+      - name: Register bot commands
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          COMMANDS: >-
+            [{"command": "deploy", "description": "Create a WireGuard server in AWS"},
+            {"command": "link", "description": "Job status, profiles and QR codes"},
+            {"command": "profile", "description": "Profile download links"},
+            {"command": "qr", "description": "QR codes for the WireGuard app"},
+            {"command": "destroy", "description": "Destroy the server"}]
+        run: |
+          curl -sSf "https://api.telegram.org/bot${TELEGRAM_TOKEN}/setMyCommands" \
+            --data-urlencode "commands=${COMMANDS}" > /dev/null
