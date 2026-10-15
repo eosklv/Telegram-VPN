@@ -1,5 +1,5 @@
 name: Deploy VPN server
-run-name: ${{ inputs.action }} ${{ inputs.action == 'apply' && inputs.protocol || '' }} VPN in ${{ inputs.cloud }}
+run-name: ${{ inputs.action == 'apply' && format('apply {0} VPN in {1}', inputs.protocol, inputs.cloud) || format('destroy VPN in {0}', inputs.cloud) }}
 on:
   workflow_dispatch:
     inputs:
