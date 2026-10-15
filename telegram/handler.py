@@ -72,6 +72,8 @@ destroy the server, or ask why the last job failed.
 
 Call the tool that matches the request. Use AWS and WireGuard unless the user mentions Yandex or OpenVPN; \
 OpenVPN also fits when the user mentions TCP or networks where UDP is blocked.
+Act on the request right away and do not ask clarifying questions: missing details take the defaults, and the \
+user confirms deploy and destroy with a button anyway.
 If no tool fits, reply briefly and in a friendly tone in the language of the user, and say what you can do.
 Never say that a server has been deployed or destroyed: the bot asks the user to confirm, and a GitHub Actions job \
 does the work.
@@ -194,7 +196,7 @@ def log_tail(log):
     return tail[tail.find("\n") + 1:]
 
 
-def converse(system, text, tools=None, max_tokens=300):
+def converse(system, text, tools=None, max_tokens=300, tool_choice="auto"):
     request = {
         "modelId": BEDROCK_MODEL_ID,
         "system": [{"text": system}],
@@ -202,8 +204,12 @@ def converse(system, text, tools=None, max_tokens=300):
         "inferenceConfig": {"maxTokens": max_tokens, "temperature": 0},
     }
     if tools:
-        request["toolConfig"] = {"tools": tools, "toolChoice": {"auto": {}}}
-    content = BEDROCK_CLIENT.converse(**request)["output"]["message"]["content"]
+        request["toolConfig"] = {"tools": tools, "toolChoice": {tool_choice: {}}}
+    response = BEDROCK_CLIENT.converse(**request)
+    if response["stopReason"] == "content_filtered":
+        logger.warning("The LLM response was blocked by the content filter")
+        return "", []
+    content = response["output"]["message"]["content"]
     # Nova writes its reasoning before tool calls in <thinking> tags
     reply = THINKING_RE.sub("", "\n".join(b["text"] for b in content if "text" in b)).strip()
     calls = [b["toolUse"] for b in content if "toolUse" in b]
@@ -390,8 +396,15 @@ def handle_text(chat_id, first_name, text):
     direct = text.startswith("/") or " ".join(words(text)) in DIRECT_TEXTS
     if BEDROCK_MODEL_ID and not direct:
         try:
-            reply, calls = converse(ROUTER_PROMPT.format(name=first_name), text, TOOLS)
+            system = ROUTER_PROMPT.format(name=first_name)
+            reply, calls = converse(system, text, TOOLS)
             calls = [c for c in calls if c["name"] in TOOL_NAMES]
+            if not (reply or calls):
+                # Without the reasoning step a forced tool call gets past false positives of the content filter;
+                # deploy and destroy are still confirmed by the user
+                logger.warning("No usable LLM answer, retrying with a forced tool call")
+                reply, calls = converse(system, text, TOOLS, tool_choice="any")
+                calls = [c for c in calls if c["name"] in TOOL_NAMES]
             if reply or calls:
                 if reply:
                     send_message(chat_id, reply)
