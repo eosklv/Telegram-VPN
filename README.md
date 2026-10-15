@@ -38,7 +38,32 @@ Depending on the selected action the bot will respond and launch the `deploy_vpn
 
 WireGuard creates a profile per device (`phone` and `laptop` by default, see the `wireguard_peers` variable), since one WireGuard key cannot be used by two devices at the same time.
 
-<a href="url"><img src="images/diagram.png?raw=true" align="center" height=99% width=99% ></a>
+## Architecture
+
+```mermaid
+flowchart TD
+    user(["User"]) <-->|"deploy / link / destroy<br/>profile links, QR codes"| tg["Telegram"]
+    tg -->|"webhook + secret token"| api
+
+    subgraph bot_stack["Telegram bot · terraform/bot"]
+        api["API Gateway<br/>HTTP API"] --> bot["Lambda<br/>tg-bot"]
+    end
+
+    bot -->|"workflow_dispatch<br/>action, cloud, protocol"| gha["GitHub Actions<br/>deploy_vpn.yml"]
+    gha -->|"AWS OIDC role /<br/>Yandex Cloud WIF"| tf["Terraform"]
+
+    subgraph servers["VPN server · terraform/aws, terraform/yandex"]
+        ec2["EC2 + Elastic IP<br/>AWS Stockholm"]
+        ycvm["Compute VM<br/>Yandex Cloud"]
+    end
+
+    tf --> ec2
+    tf -.-> ycvm
+    ec2 -->|"cloud-init: WireGuard / OpenVPN<br/>profiles + QR via presigned POST"| s3[("S3<br/>Terraform state + profiles")]
+    ycvm -.-> s3
+    s3 -->|"presigned links"| bot
+    bot -->|"replies"| tg
+```
 
 ## Repository layout
 
