@@ -28,18 +28,17 @@ Depending on the selected action the bot will respond and launch the `deploy_vpn
 
 ## Bot commands
 
-| Message | Action |
-|---|---|
-| `deploy` | WireGuard server in AWS Stockholm |
-| `deploy yandex` | WireGuard server in Yandex Cloud |
-| `deploy openvpn`, `deploy yandex openvpn` | OpenVPN on 443/tcp, for networks where UDP is blocked |
-| `link`, `status` | Last job status, profile links and QR codes |
-| `profile` | Profile download links only |
-| `qr` | QR codes only (WireGuard), scan them in the WireGuard mobile app |
-| `destroy`, `destroy yandex` | Destroy the server |
-| `start`, `hi` | Greeting |
+| Menu command | Same as text | Action |
+|---|---|---|
+| `/deploy` | `deploy` | WireGuard server in AWS Stockholm |
+| `/deploy_openvpn` | `deploy openvpn` | OpenVPN on 443/tcp in AWS, for networks where UDP is blocked |
+| `/deploy_yandex` | `deploy yandex` | WireGuard server in Yandex Cloud |
+| `/deploy_yandex_openvpn` | `deploy yandex openvpn` | OpenVPN on 443/tcp in Yandex Cloud |
+| `/profiles` | `profiles`, `link`, `status` | Last job status, profile links and QR codes |
+| `/destroy` | `destroy` | Destroy the AWS server |
+| `/destroy_yandex` | `destroy yandex` | Destroy the Yandex Cloud server |
 
-Commands work with or without a leading slash (`/link` and `link`); the main ones are also registered in the Telegram command menu by the bot deployment workflow.
+The menu is registered in Telegram by the bot deployment workflow. Menu commands cannot contain spaces, so the bot reads `_` as a space; any command also works as plain text, with or without the slash. A few extra text commands are not in the menu: `profile` (profile links only), `qr` (QR codes only, for the WireGuard mobile app) and `start` / `hi` (greeting).
 
 WireGuard creates a profile per device (`phone` and `laptop` by default, see the `wireguard_peers` variable), since one WireGuard key cannot be used by two devices at the same time.
 
@@ -47,7 +46,7 @@ WireGuard creates a profile per device (`phone` and `laptop` by default, see the
 
 ```mermaid
 flowchart TD
-    user(["User"]) <-->|"deploy / link / qr / destroy<br/>profile links, QR codes"| tg["Telegram"]
+    user(["User"]) <-->|"deploy / profiles / destroy<br/>profile links, QR codes"| tg["Telegram"]
     tg -->|"webhook + secret token"| api
 
     subgraph bot_stack["Telegram bot · terraform/bot"]
