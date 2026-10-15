@@ -52,6 +52,12 @@ def converse_response(*blocks):
     return {"output": {"message": {"role": "assistant", "content": list(blocks)}}, "stopReason": "end_turn"}
 
 
+def filtered_response():
+    response = converse_response(text_block(" - The generated text has been blocked by our content filters."))
+    response["stopReason"] = "content_filtered"
+    return response
+
+
 class FakeHttp:
     """Records every HTTP call and answers GitHub requests with canned responses."""
 
@@ -286,6 +292,24 @@ class FallbackTest(HandlerTestCase):
         self.message("please destroy yandex")
 
         self.assertEqual(self.keyboard(), ["run:destroy:yandex:wireguard", "cancel"])
+
+    def test_content_filter_is_retried_with_a_forced_tool_call(self):
+        self.converse.side_effect = [filtered_response(), converse_response(tool_block("destroy", cloud="yandex"))]
+        self.message("убери сервер в яндексе")
+
+        self.assertEqual(self.keyboard(), ["run:destroy:yandex:wireguard", "cancel"])
+        self.assertNotIn("blocked", " ".join(self.http.texts()))
+        first, retry = [c.kwargs for c in self.converse.call_args_list]
+        self.assertEqual(first["toolConfig"]["toolChoice"], {"auto": {}})
+        self.assertEqual(retry["toolConfig"]["toolChoice"], {"any": {}})
+
+    def test_filtered_retry_falls_back_to_keywords(self):
+        self.converse.side_effect = [converse_response(text_block("<thinking>Which server?</thinking>")), filtered_response()]
+        self.message("please deploy openvpn")
+
+        self.assertEqual(self.converse.call_count, 2)
+        self.assertEqual(self.keyboard(), ["run:apply:aws:openvpn", "cancel"])
+        self.assertNotIn("blocked", " ".join(self.http.texts()))
 
     def test_unknown_tool_falls_back_to_keywords(self):
         self.converse.return_value = converse_response(tool_block("rm_rf"))
