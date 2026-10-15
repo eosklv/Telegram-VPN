@@ -193,6 +193,7 @@ GitHub Actions authenticates in Yandex Cloud with [Workload Identity Federation]
 
 - [v1.0](https://github.com/eosklv/VPN-Telegram-AI-Bot/releases/tag/v1.0) — the original version: OpenVPN in AWS only, Telegram bot deployed with Serverless Framework.
 - [v2.0](https://github.com/eosklv/VPN-Telegram-AI-Bot/releases/tag/v2.0) — AI assistant, WireGuard, Yandex Cloud, everything deployed with Terraform.
+- [v3.0](https://github.com/eosklv/VPN-Telegram-AI-Bot/releases/tag/v3.0) — template repository with a one-script setup, no personal defaults, any AWS region.
 
 ## Author
 
