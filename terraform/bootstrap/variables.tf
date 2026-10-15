@@ -19,7 +19,7 @@ variable "github_owner" {
 variable "github_repository" {
   description = "GitHub repository name"
   type        = string
-  default     = "Telegram-VPN"
+  default     = "VPN-Telegram-AI-Bot"
 }
 
 variable "github_owner_id" {

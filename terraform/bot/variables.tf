@@ -35,7 +35,7 @@ variable "github_token" {
 variable "github_repo" {
   description = "Repository with the deploy workflow, owner/name"
   type        = string
-  default     = "eosklv/Telegram-VPN"
+  default     = "eosklv/VPN-Telegram-AI-Bot"
 }
 
 variable "profile_bucket" {
